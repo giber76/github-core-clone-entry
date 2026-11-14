@@ -16,6 +16,9 @@ import { sendError, sendJson } from './http-util.ts';
 
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 
+/** The shared empty body for GET/HEAD requests, which never carry one here. */
+const EMPTY_BODY = Buffer.alloc(0);
+
 function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -51,7 +54,9 @@ export function createApp(): Server {
             return;
           }
         }
-        const body = await readBody(req);
+        // GET/HEAD never carry a body on any surface here: skip the read (and the extra
+        // event-loop turn waiting for 'end') and hand the handlers an empty buffer.
+        const body = req.method === 'GET' || req.method === 'HEAD' ? EMPTY_BODY : await readBody(req);
         const segments = url.pathname.split('/').filter((s) => s !== '');
         if (handleGit(req, res, body, url)) return;
         if (url.pathname === '/api/graphql' && req.method === 'POST') {

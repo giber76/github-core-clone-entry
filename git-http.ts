@@ -254,6 +254,53 @@ function planFetch(
   return { objects, shallow: boundary, unshallow };
 }
 
+// -------------------------------------------------------------------------------------------
+// fetch-response cache: one entry per repo. A fetch reply is fully determined by the repo's
+// objects+refs and the fetch arguments (wants, haves, depth, shallow bounds), so an identical
+// fetch against an unchanged repo reuses the exact bytes. The key fingerprints the repo state:
+// objects only ever grow inside one Repo object (never removed), so equal size + equal refs
+// means equal content; a recreated repo is a new object and misses. This makes 50 concurrent
+// identical clones build their pack once instead of 50 times.
+/** One cached fetch reply per repo (WeakMap: a deleted repo's entry dies with it). */
+const fetchCache = new WeakMap<Repo, { key: string; response: Buffer }>();
+
+function fetchCacheKey(
+  repo: Repo,
+  wants: readonly string[],
+  haves: readonly string[],
+  depth: number | undefined,
+  shallows: ReadonlySet<string>,
+): string {
+  const refs = [...repo.refs.entries()]
+    .map(([name, oid]) => `${name}=${oid}`)
+    .sort()
+    .join(',');
+  return [
+    repo.objects.size,
+    refs,
+    wants.join(','),
+    haves.join(','),
+    depth === undefined ? '' : String(depth),
+    [...shallows].sort().join(','),
+  ].join('|');
+}
+
+function cachedFetch(
+  repo: Repo,
+  wants: readonly string[],
+  haves: readonly string[],
+  depth: number | undefined,
+  shallows: ReadonlySet<string>,
+  build: () => Buffer,
+): Buffer {
+  const key = fetchCacheKey(repo, wants, haves, depth, shallows);
+  const hit = fetchCache.get(repo);
+  if (hit !== undefined && hit.key === key) return hit.response;
+  const response = build();
+  fetchCache.set(repo, { key, response });
+  return response;
+}
+
 /** Pack bytes as sideband band-1 pkt-lines (chunked well under the 65,520 cap). */
 function sidebandPack(pack: Buffer): Buffer {
   const parts: Buffer[] = [];
@@ -319,20 +366,23 @@ function handleFetchV2(repo: Repo, args: string[]): Buffer {
       if (!Number.isNaN(n)) depth = n;
     }
   }
-  const plan = planFetch(repo, [...new Set(wants)], haves, shallows, depth);
-  const pack = writePack(plan.objects);
-  const parts: Buffer[] = [];
-  parts.push(encodePktLines(['acknowledgments\n', 'NAK\n', 'flush']));
-  if (plan.shallow.length > 0 || plan.unshallow.length > 0) {
-    const lines: string[] = ['shallow-info\n'];
-    for (const oid of plan.shallow) lines.push(`shallow ${oid}\n`);
-    for (const oid of plan.unshallow) lines.push(`unshallow ${oid}\n`);
-    lines.push('flush');
-    parts.push(encodePktLines(lines));
-  }
-  parts.push(encodePktLines(['packfile\n']));
-  parts.push(sidebandPack(pack));
-  return Buffer.concat(parts);
+  const wantSet = [...new Set(wants)];
+  return cachedFetch(repo, wantSet, haves, depth, shallows, () => {
+    const plan = planFetch(repo, wantSet, haves, shallows, depth);
+    const pack = writePack(plan.objects);
+    const parts: Buffer[] = [];
+    parts.push(encodePktLines(['acknowledgments\n', 'NAK\n', 'flush']));
+    if (plan.shallow.length > 0 || plan.unshallow.length > 0) {
+      const lines: string[] = ['shallow-info\n'];
+      for (const oid of plan.shallow) lines.push(`shallow ${oid}\n`);
+      for (const oid of plan.unshallow) lines.push(`unshallow ${oid}\n`);
+      lines.push('flush');
+      parts.push(encodePktLines(lines));
+    }
+    parts.push(encodePktLines(['packfile\n']));
+    parts.push(sidebandPack(pack));
+    return Buffer.concat(parts);
+  });
 }
 
 // -------------------------------------------------------------------------------------------
@@ -355,13 +405,16 @@ function handleFetchV0(repo: Repo, section1: string[], section2: string[]): Buff
   for (const line of section2) {
     if (line.startsWith('have ')) haves.push(line.slice(5).trim());
   }
-  const plan = planFetch(repo, [...new Set(wants)], haves, shallows, depth);
-  const pack = writePack(plan.objects);
-  const parts: Buffer[] = [encodePktLines(['NAK\n'])];
-  for (const oid of plan.shallow) parts.push(encodePktLines([`shallow ${oid}\n`]));
-  for (const oid of plan.unshallow) parts.push(encodePktLines([`unshallow ${oid}\n`]));
-  parts.push(sidebandPack(pack));
-  return Buffer.concat(parts);
+  const wantSet = [...new Set(wants)];
+  return cachedFetch(repo, wantSet, haves, depth, shallows, () => {
+    const plan = planFetch(repo, wantSet, haves, shallows, depth);
+    const pack = writePack(plan.objects);
+    const parts: Buffer[] = [encodePktLines(['NAK\n'])];
+    for (const oid of plan.shallow) parts.push(encodePktLines([`shallow ${oid}\n`]));
+    for (const oid of plan.unshallow) parts.push(encodePktLines([`unshallow ${oid}\n`]));
+    parts.push(sidebandPack(pack));
+    return Buffer.concat(parts);
+  });
 }
 
 // -------------------------------------------------------------------------------------------
