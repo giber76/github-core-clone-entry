@@ -222,7 +222,9 @@ export type GitPacket =
 
 /** Decode a whole buffer of pkt-lines. Throws on a malformed header or a truncated packet. */
 export function decodePktLines(bytes: Uint8Array): GitPacket[] {
-  const buf = Buffer.from(bytes);
+  // The caller hands over a Buffer already (a request body or a pack slice): use it
+  // in place instead of copying it.
+  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   const out: GitPacket[] = [];
   let offset = 0;
   while (offset < buf.length) {
@@ -395,7 +397,8 @@ function readPackInner(
   options: { resolveBase?: (oid: string) => GitObject | undefined },
   fast: boolean,
 ): PackReadResult {
-  const buf = Buffer.from(pack);
+  // The pack arrives as a Buffer (a slice of the request body): use it in place.
+  const buf = Buffer.isBuffer(pack) ? pack : Buffer.from(pack);
   if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'PACK') throw new Error('not a packfile');
   const version = buf.readUInt32BE(4);
   if (version !== 2 && version !== 3) throw new Error(`unsupported pack version ${version}`);

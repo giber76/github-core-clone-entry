@@ -26,7 +26,7 @@ import {
   type PullRequest,
   type Repo,
 } from './store.ts';
-import { parseJsonBody, sendError, sendJson } from './http-util.ts';
+import { nowIso, parseJsonBody, sendError, sendJson } from './http-util.ts';
 
 const ISSUE_FIELDS = [
   'id', 'number', 'title', 'state', 'body', 'author', 'createdAt', 'updatedAt',
@@ -61,8 +61,8 @@ function repoFields(repo: Repo): Record<string, unknown> {
     hasIssuesEnabled: true,
     description: repo.description,
     isPrivate: repo.private,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
     url: `/api/v3/repos/${repo.owner}/${repo.name}`,
   };
 }

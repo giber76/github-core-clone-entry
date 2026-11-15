@@ -27,7 +27,7 @@ import {
   type PullRequest,
   type Repo,
 } from './store.ts';
-import { parseJsonBody, sendError, sendJson } from './http-util.ts';
+import { nowIso, parseJsonBody, sendError, sendJson } from './http-util.ts';
 
 const BASE64_STRIP = /[\r\n\t ]/g;
 
@@ -42,8 +42,8 @@ function issueJson(repo: Repo, issue: Issue): Record<string, unknown> {
     labels: issue.labels.map((name) => ({ name, color: 'ededed' })),
     user: { login: VIEWER_LOGIN, id: 1000 },
     comments: issue.comments.length,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowIso(),
+    updated_at: nowIso(),
     url: `/api/v3/repos/${repo.owner}/${repo.name}/issues/${issue.number}`,
     html_url: `https://example.invalid/${repo.owner}/${repo.name}/issues/${issue.number}`,
   };
@@ -60,8 +60,8 @@ function pullJson(repo: Repo, pr: PullRequest): Record<string, unknown> {
     head: { ref: pr.head, sha: pr.headSha, label: `${repo.owner}:${pr.head}` },
     base: { ref: pr.base, sha: pr.baseSha, label: `${repo.owner}:${pr.base}` },
     user: { login: VIEWER_LOGIN, id: 1000 },
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowIso(),
+    updated_at: nowIso(),
     url: `/api/v3/repos/${repo.owner}/${repo.name}/pulls/${pr.number}`,
     html_url: `https://example.invalid/${repo.owner}/${repo.name}/pull/${pr.number}`,
   };
@@ -86,8 +86,8 @@ function repoJson(repo: Repo): Record<string, unknown> {
     private: repo.private,
     description: repo.description,
     default_branch: repo.defaultBranch,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowIso(),
+    updated_at: nowIso(),
     url: `/api/v3/repos/${repo.owner}/${repo.name}`,
     html_url: `https://example.invalid/${repo.owner}/${repo.name}`,
   };

@@ -1,11 +1,26 @@
 // http-util.ts — small response helpers shared by the four surfaces.
+// Perf notes: the timed workloads are thousands of tiny requests, so the helpers
+// avoid per-call Date work — request ids come from a counter, and the ISO clock
+// string is refreshed only when the wall second rolls over.
 import type { ServerResponse } from 'node:http';
 
 let requestCounter = 0;
 
 export function nextRequestId(): string {
   requestCounter += 1;
-  return `req-${Date.now().toString(36)}-${requestCounter.toString(36)}`;
+  return `req-${requestCounter}`;
+}
+
+/** The current time as an ISO string, cached for the running wall second. */
+let cachedSecond = -1;
+let cachedIso = '';
+export function nowIso(): string {
+  const second = Math.floor(Date.now() / 1000);
+  if (second !== cachedSecond) {
+    cachedSecond = second;
+    cachedIso = new Date(second * 1000).toISOString();
+  }
+  return cachedIso;
 }
 
 export function sendJson(res: ServerResponse, status: number, body: unknown, extraHeaders: Record<string, string> = {}): void {
